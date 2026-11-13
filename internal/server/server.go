@@ -69,6 +69,9 @@ func Build(c config.Config, resources *infrastructure.Resources) (*App, error) {
 	s.SetWriteTimeout(30 * time.Second)
 	s.SetClientMaxBodySize(2 << 20)
 	s.SetGracefulShutdownTimeout(10)
+	if err := registerDocs(s, c); err != nil {
+		return nil, err
+	}
 	app := &App{Server: s, resources: resources, clients: httpclient.NewRegistry()}
 	if c.HTTPLog {
 		app.logs = accesslog.New(resources.DB)
@@ -83,7 +86,6 @@ func Build(c config.Config, resources *infrastructure.Resources) (*App, error) {
 	)
 	registerBusinessRoutes(s, c, resources)
 	registerProbes(s, c, resources)
-	registerDocs(s, c)
 	return app, nil
 }
 
@@ -131,23 +133,6 @@ func registerProbes(s *ghttp.Server, c config.Config, resources *infrastructure.
 			}
 		}
 		r.Response.WriteJson(map[string]string{"status": "ok"})
-	})
-}
-
-// registerDocs 仅在非生产且启用文档时注册 OpenAPI 和在线调试入口。
-// 标题来自应用配置，业务响应使用统一包装模型；是否允许访问由入口中间件执行认证。
-func registerDocs(s *ghttp.Server, c config.Config) {
-	if !c.Docs || c.IsProduction() {
-		return
-	}
-	s.SetOpenApiPath(c.OpenAPIPath())
-	s.GetOpenApi().Info.Title = c.AppName + " API"
-	s.GetOpenApi().Info.Version = "1.0.0"
-	s.GetOpenApi().Config.CommonResponse = middleware.Response{}
-	s.GetOpenApi().Config.CommonResponseDataField = "Data"
-	s.BindHandler("GET:"+c.DocsPath(), func(r *ghttp.Request) {
-		r.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
-		writeDocs(r, c.OpenAPIPath(), c.AppName+" API")
 	})
 }
 

@@ -169,11 +169,10 @@ func writeCORSHeaders(r *ghttp.Request, origin string, credentials bool) {
 	header.Set("Access-Control-Expose-Headers", "X-Trace-Id,Retry-After")
 }
 
-// allowDocumentation 在启用文档认证时校验两个文档入口的 Basic Auth。
+// allowDocumentation 在启用文档认证时校验 OpenAPI、文档页面和内嵌 UI 资源的 Basic Auth。
 // 非文档请求、生产环境或无需认证时返回 true；认证失败时写入安全的 401 响应和认证挑战头并返回 false。
 func allowDocumentation(r *ghttp.Request, c config.Config) bool {
-	isDoc := r.URL.Path == c.DocsPath() || r.URL.Path == c.OpenAPIPath()
-	if !isDoc || !c.Docs || c.IsProduction() || !c.DocsAuth {
+	if !c.IsDocumentationPath(r.URL.Path) || !c.Docs || c.IsProduction() || !c.DocsAuth {
 		return true
 	}
 	var (

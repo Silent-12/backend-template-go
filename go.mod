@@ -11,6 +11,7 @@ require (
 	github.com/gogf/gf/v2 v2.10.4
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
+	github.com/songxychn/knife4j-next/knife4x/go v0.9.2
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
 )

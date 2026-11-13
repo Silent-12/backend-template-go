@@ -21,7 +21,9 @@ go run .
 - OpenAPI JSON：`http://localhost:3000/backend/api-json`
 - 存活 / 就绪探针：`/backend/livez`、`/backend/readyz`
 
-文档使用 Swagger UI，可查看模型和在线调试；界面脚本需要访问 CDN，JSON 可下载后导入离线 API 工具。页面关闭外部校验服务和授权信息持久化。文档只包含当前启用的标准业务接口。项目没有内置账户、JWT 或 RBAC；业务接口正式对外开放前应接入业务认证与权限控制。
+文档使用 Knife4x Go **v0.9.2**，由 GoFrame 生成 OpenAPI 3 JSON，提供模型浏览和在线调试。UI、动态分块与 Schema Worker 随 Go module 内嵌到二进制，无需 Node 或 CDN；页面标题及规范标题使用 `APP_NAME`。页面 CSP 仅允许同源资源、Worker 和调试请求，内联初始化脚本使用每次请求生成的 nonce。Knife4x 会在浏览器保存调试设置及授权信息，共用电脑使用后应在界面清理本地数据。文档只包含当前启用的标准业务接口。项目没有内置账户、JWT 或 RBAC；业务接口正式对外开放前应接入业务认证与权限控制。
+
+升级后文档入口和 `DOCS_*` 配置保持原样；反向代理需同时转发 API 前缀下的 `/assets/`、`/knife4j-next-*.svg`、`/oauth2-redirect.html` 与 `/vite.svg`，这些路径保留给内嵌文档。页面、JSON 和 UI 资源共用文档认证，且不参与业务限流；生产或 `DOCS_ENABLED=false` 时全部关闭。发布包含新依赖的二进制即可，无数据库迁移或配置新增；需要回退时部署原版本二进制并保留现有配置。
 
 ## 配置
 
@@ -225,7 +227,7 @@ upstream := NewUpstream(client)
 
 生产设置 `APP_ENV=production`；文档强制关闭，健康业务接口只返回存活状态。非生产健康接口额外提供运行时长和 Go 堆内存诊断。`/readyz` 并行探测启用的依赖，不可用时返回 503，某个依赖超时不会连带误报其他依赖；`/livez` 独立反映进程存活。
 
-生产跨域来源通过 `CORS_ORIGINS` 明确配置，逗号分隔，留空表示不提供跨域许可；开发环境留空时允许来源。模板不处理 HTTPS 证书，生产通常由入口代理终止 TLS。开发 / 测试文档可设置 `DOCS_AUTH_ENABLED=true` 和非空的 `DOCS_USERNAME` / `DOCS_PASSWORD`，同时保护 HTML 与 JSON。
+生产跨域来源通过 `CORS_ORIGINS` 明确配置，逗号分隔，留空表示不提供跨域许可；开发环境留空时允许来源。模板不处理 HTTPS 证书，生产通常由入口代理终止 TLS。开发 / 测试文档可设置 `DOCS_AUTH_ENABLED=true` 和非空的 `DOCS_USERNAME` / `DOCS_PASSWORD`，同时保护 HTML、JSON 与内嵌 UI 资源。
 
 首次部署顺序为：按需准备数据库和 Redis → 需要访问日志时在新库执行 V2 → 注入配置 → 构建启动 → 检查 `livez`、`readyz` 和健康接口。数据库 / 日志开关默认关闭，只有显式启用后才会产生连接和数据写入。先验证新版本再切流；回退时恢复上一版二进制和配置，保留已写入的数据库表。应用不会自动执行破坏性回滚。
 
@@ -272,7 +274,7 @@ go test ./...
 go build ./...
 ```
 
-默认测试无需外部服务，覆盖配置、可信代理边界、真实 HTTP 路由、入站追踪头剥离、参数校验、异常脱敏、文档认证和生产文档关闭。SQLite 测试验证访问日志写入和 ORM 毫秒时间，不代表 MySQL 实连验证。
+默认测试无需外部服务，覆盖配置、可信代理边界、真实 HTTP 路由、入站追踪头剥离、参数校验、异常脱敏、Knife4x 前缀与内嵌资源、Worker MIME/CSP、文档认证、限流排除和文档关闭。Knife4x 接入已通过本地独立进程的 Chrome 页面渲染及健康接口在线调试验证（HTTP 200）。SQLite 测试验证访问日志写入和 ORM 毫秒时间，不代表 MySQL 实连验证。
 
 Resty 测试使用本地 HTTP / TLS 模拟上游，覆盖取消与超时、响应大小、写操作不重试、重定向限制、追踪透传、证书校验和 Cookie 隔离，不请求真实第三方服务。
 
@@ -300,7 +302,7 @@ docker compose -f manifest/docker/compose.test.yaml down
 | TypeORM / MySQL | GoFrame ORM、生成的 DAO / DO / Entity、注入式 Repository 与顺序 SQL 迁移 |
 | TypeORM 事务 | 注入 `Transactor` 拥有事务边界，Repository 复用 ctx 中的事务 |
 | Redis 服务与限流存储 | gredis、可注入 Cache、Lua 原子计数与封禁 |
-| Knife4j 在线文档 | GoFrame OpenAPI + Swagger UI 在线调试 |
+| Knife4j 在线文档 | GoFrame OpenAPI + Knife4x Go 内嵌在线调试 |
 | 异常过滤器、统一响应 | HTTP / GoFrame 错误码映射、响应包装、异常脱敏 |
 | 请求追踪与访问日志 | 服务端生成追踪编号、拒绝入站 trace 头、有界异步日志队列 |
 | Helmet / CORS | CSP 等安全响应头、生产来源白名单、可信代理 CIDR |
@@ -325,3 +327,4 @@ Linux/macOS 使用 `sh ./hack/install-tools.sh`；已手动安装工具时也可
 - [项目目录设计](https://goframe.org/docs/design/project-structure)
 - [规范路由](https://goframe.org/docs/web/router-registering-strict-router-usage)
 - [Resty v2 文档](https://pkg.go.dev/github.com/go-resty/resty/v2)
+- [Knife4x Go 接入说明](https://github.com/songxychn/knife4j-next/blob/knife4x/go/v0.9.2/knife4x/go/README.md)

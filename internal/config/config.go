@@ -364,6 +364,35 @@ func (c Config) DocsPath() string {
 	return c.BasePath() + "/" + DocsPageSegment
 }
 
+// DocsUIRoutes 返回 Knife4x 内嵌 UI 的路由，通配符仅覆盖打包资源目录。
+// 这些路径保留给接口文档，供路由注册、认证和限流排除共用。
+func (c Config) DocsUIRoutes() []string {
+	base := c.BasePath()
+	return []string{
+		c.DocsPath(),
+		base + "/assets/*file",
+		base + "/knife4j-next-mark.svg",
+		base + "/knife4j-next-logo.svg",
+		base + "/oauth2-redirect.html",
+		base + "/vite.svg",
+	}
+}
+
+// IsDocumentationPath 判断路径是否属于 OpenAPI、文档页面或内嵌 UI 资源。
+// 只匹配当前 API 前缀和完整资源段，不把相似业务路径当作文档。
+func (c Config) IsDocumentationPath(path string) bool {
+	if path == c.OpenAPIPath() {
+		return true
+	}
+	for _, route := range c.DocsUIRoutes() {
+		prefix, _, wildcard := strings.Cut(route, "*")
+		if path == route || (wildcard && strings.HasPrefix(path, prefix)) {
+			return true
+		}
+	}
+	return false
+}
+
 // OpenAPIPath 返回 OpenAPI 规范文档的完整路径，供文档页面同源加载。
 func (c Config) OpenAPIPath() string {
 	return c.BasePath() + "/" + OpenAPISegment

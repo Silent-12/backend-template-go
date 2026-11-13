@@ -76,7 +76,7 @@ func (l limiter) hit(ctx context.Context, key string, window time.Duration, limi
 func Throttle(c config.Config, redis *gredis.Redis) ghttp.HandlerFunc {
 	l := limiter{redis: redis, prefix: c.ThrottleKeyPrefix}
 	return func(r *ghttp.Request) {
-		if !c.Throttle || redis == nil || r.Method == http.MethodOptions {
+		if !c.Throttle || redis == nil || r.Method == http.MethodOptions || c.IsDocumentationPath(r.URL.Path) {
 			r.Middleware.Next()
 			return
 		}

@@ -1,38 +1,84 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"html"
+	"net/http"
+	"strconv"
+	"strings"
 
+	"github.com/gogf/gf/v2/errors/gcode"
+	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/google/uuid"
+	knife4x "github.com/songxychn/knife4j-next/knife4x/go"
+
+	"backend-template-go/internal/config"
+	"backend-template-go/internal/middleware"
 )
 
-// docsCSP 是文档页面使用的 Content-Security-Policy，%s 由每次请求生成的脚本 nonce 填充。
-// 脚本只允许 unpkg 分发的 Swagger UI 与带 nonce 的内联初始化代码，页面不加载其他外部资源。
+// docsCSP 仅允许同源 UI、Schema Worker 和带 nonce 的初始化脚本。
+// 组件库需要内联样式；调试请求及规范加载限定同源，不允许任意脚本求值。
 const docsCSP = "default-src 'none'; " +
-	"script-src https://unpkg.com 'nonce-%s'; " +
-	"style-src https://unpkg.com 'unsafe-inline'; " +
+	"script-src 'self' 'nonce-%s'; worker-src 'self'; " +
+	"style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data:; connect-src 'self'; font-src 'self' data:; " +
 	"frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
 
-// writeDocs 输出使用 specURL 加载 OpenAPI 的在线调试页面，并按 HTML 文本转义 title。
-// 页面禁用缓存、外部规范校验和授权持久化，使用每次生成的 nonce 限制内联脚本。
-// specURL 应为应用生成的同源路径；页面不经过统一业务 JSON 包装。
-func writeDocs(r *ghttp.Request, specURL, title string) {
-	nonce := uuid.NewString()
-	spec, _ := json.Marshal(specURL)
-	r.Response.Header().Set("Cache-Control", "no-store")
-	r.Response.Header().Set("Content-Security-Policy", fmt.Sprintf(docsCSP, nonce))
-	r.Response.Write(fmt.Sprintf(docsHTML, html.EscapeString(title), nonce, spec))
+// registerDocs 仅在非生产且启用文档时注册 GoFrame OpenAPI 和 Knife4x 内嵌 UI。
+// 文档页面与资源均经过入口认证及安全中间件，不提供本地目录或静态文件托管。
+func registerDocs(s *ghttp.Server, c config.Config) error {
+	if !c.Docs || c.IsProduction() {
+		return nil
+	}
+	handler, err := knife4x.NewHandler(knife4x.Config{
+		SpecURL:  c.OpenAPIPath(),
+		BasePath: c.BasePath(),
+	}, nil)
+	if err != nil {
+		return gerror.WrapCode(gcode.CodeInvalidConfiguration, err, "无法初始化 Knife4x 文档")
+	}
+	s.SetOpenApiPath(c.OpenAPIPath())
+	s.GetOpenApi().Info.Title = c.AppName + " API"
+	s.GetOpenApi().Info.Version = "1.0.0"
+	s.GetOpenApi().Config.CommonResponse = middleware.Response{}
+	s.GetOpenApi().Config.CommonResponseDataField = "Data"
+	serve := func(r *ghttp.Request) {
+		serveDocs(r, handler, c.AppName+" API")
+	}
+	for _, route := range c.DocsUIRoutes() {
+		s.BindHandler("GET:"+route, serve)
+		s.BindHandler("HEAD:"+route, serve)
+	}
+	return nil
 }
 
-const docsHTML = `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>%s</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.34.1/swagger-ui.css"></head>
-<body><div id="swagger-ui"></div>
-<script src="https://unpkg.com/swagger-ui-dist@5.34.1/swagger-ui-bundle.js"></script>
-<script nonce="%s">SwaggerUIBundle({url:%s,dom_id:"#swagger-ui",deepLinking:true,persistAuthorization:false,validatorUrl:null,queryConfigEnabled:false});</script>
-</body></html>`
+// serveDocs 将标准库 Handler 接入 GoFrame 缓冲响应，保留 MIME、状态码和资源路径。
+// HTML 按完整 GET 内容生成 nonce 与服务标题，禁用分段读取和缓存，避免脚本配置被截断或复用。
+// HEAD 仍生成相同内容，避免空缓冲被业务中间件包装；响应体由 HTTP 服务按协议省略。
+func serveDocs(r *ghttp.Request, handler http.Handler, title string) {
+	var (
+		nonce   = uuid.NewString()
+		request = r.Request
+		isHTML  = strings.HasSuffix(r.URL.Path, ".html")
+	)
+	r.Response.Header().Set("Cache-Control", "no-store")
+	r.Response.Header().Set("Content-Security-Policy", fmt.Sprintf(docsCSP, nonce))
+	if isHTML || request.Method == http.MethodHead {
+		request = r.Request.Clone(r.Context())
+		request.Method = http.MethodGet
+	}
+	if isHTML {
+		request.Header.Del("Range")
+		request.Header.Del("If-Range")
+	}
+	handler.ServeHTTP(r.Response.BufferWriter, request)
+	if !isHTML || r.Response.Status != http.StatusOK {
+		return
+	}
+	page := strings.ReplaceAll(r.Response.BufferString(), "<script", `<script nonce="`+nonce+`"`)
+	page = strings.Replace(page, "<title>Knife4j Next</title>", "<title>"+html.EscapeString(title)+"</title>", 1)
+	r.Response.SetBuffer([]byte(page))
+	r.Response.Header().Set("Content-Length", strconv.Itoa(len(page)))
+	r.Response.Header().Del("Accept-Ranges")
+}
