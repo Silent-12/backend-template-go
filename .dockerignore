@@ -1,0 +1,10 @@
+.git
+.agents
+.codegraph
+.env
+.env.*
+bin
+logs
+*.out
+coverage.*
+hack/config.local.yaml

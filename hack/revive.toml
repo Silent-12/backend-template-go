@@ -1,0 +1,23 @@
+ignoreGeneratedHeader = true
+severity = "warning"
+confidence = 0.8
+errorCode = 1
+warningCode = 1
+
+[rule.exported]
+arguments = ["checkPrivateReceivers", "disableStutteringCheck"]
+[rule.package-comments]
+[rule.context-as-argument]
+[rule.context-keys-type]
+[rule.dot-imports]
+[rule.error-naming]
+[rule.error-return]
+[rule.error-strings]
+[rule.errorf]
+[rule.indent-error-flow]
+[rule.receiver-naming]
+[rule.redefines-builtin-id]
+[rule.superfluous-else]
+[rule.unreachable-code]
+[rule.var-declaration]
+[rule.var-naming]

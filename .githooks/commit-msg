@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+title="$(head -n 1 "$1" | tr -d '\r')"
+case "$title" in
+  Merge\ *|Revert\ *|fixup\!*|squash\!*) exit 0 ;;
+esac
+if ! printf '%s\n' "$title" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: .+'; then
+  printf 'Use a Conventional Commit title, e.g. feat(api): 完善接口参数校验\n' >&2
+  exit 1
+fi

@@ -1,0 +1,9 @@
+# 开发工具配置，不存放数据库凭据；通过命令行 --link 或本地未提交配置指定开发库。
+gfcli:
+  gen:
+    dao:
+      - path: internal
+        tables: access_logs
+        jsonCase: CamelLower
+        fileNameCase: Snake
+        withTime: false

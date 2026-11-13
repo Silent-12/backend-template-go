@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+/bin/
+logs/
+*.out
+coverage.*
+*.exe
+.idea/
+/hack/config.local.yaml

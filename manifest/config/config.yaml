@@ -1,0 +1,12 @@
+# 应用、数据库及 Redis 配置统一由 .env / 运行环境注入，避免多份配置冲突。
+logger:
+  path: logs
+  file: "app-{Y-m-d}.log"
+  level: all
+  stdout: true
+  rotateSize: "100M"
+  # 日期切换后不再写入的旧日志也必须进入轮转，否则备份保留策略不会清理它们。
+  rotateExpire: "24h"
+  rotateBackupLimit: 10
+  rotateBackupExpire: "168h"
+  stdoutColorDisabled: true
