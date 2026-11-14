@@ -33,6 +33,10 @@ type Config struct {
 	// DocsPassword 是文档认证密码，保留原始首尾空格，不参与 JSON 编码。
 	DocsPassword string `json:"-"`
 
+	// ExampleUpstreamOrigin 是示例模块出站请求的可信来源，只接受 http/https 且不含路径、查询、片段或通配符。
+	// 留空时示例上游探测返回明确错误；派生服务应替换为自己上游的配置，禁止接收调用方传入地址。
+	ExampleUpstreamOrigin string
+
 	// MySQL 控制数据库连接及依赖数据库的示例业务接口。
 	MySQL bool
 	// DBLogging 控制数据库调试日志，使用时仍须遵循凭据和数据脱敏约定。

@@ -346,68 +346,70 @@ func TestConfigPathsFollowAPIPrefix(t *testing.T) {
 // 分域解析后由 combineConfig 统一装配，本用例锁定每个域字段都被搬运，避免新增字段被静默丢弃。
 func TestParseFillsEveryDomain(t *testing.T) {
 	env := map[string]string{
-		"APP_ENV":             EnvTest,
-		"APP_NAME":            "orders",
-		"HOST":                "127.0.0.1",
-		"PORT":                "8080",
-		"API_PREFIX":          "/api/v1/",
-		"CORS_ORIGINS":        "https://a.example.com",
-		"TRUSTED_PROXY_CIDRS": "10.0.0.0/8,fd00::/8",
-		"HTTP_LOG_ENABLED":    "true",
-		"DOCS_ENABLED":        "true",
-		"DOCS_AUTH_ENABLED":   "true",
-		"DOCS_USERNAME":       "docs",
-		"DOCS_PASSWORD":       " docs-secret ",
-		"MYSQL_ENABLED":       "true",
-		"DB_LOGGING":          "true",
-		"DB_HOST":             "db.internal",
-		"DB_PORT":             "3307",
-		"DB_USERNAME":         "app",
-		"DB_PASSWORD":         " db-secret ",
-		"DB_DATABASE":         "demo",
-		"REDIS_ENABLED":       "true",
-		"REDIS_HOST":          "cache.internal",
-		"REDIS_PORT":          "6380",
-		"REDIS_USERNAME":      "cache-user",
-		"REDIS_PASSWORD":      " redis-secret ",
-		"REDIS_DB":            "3",
-		"REDIS_KEY_PREFIX":    "test:demo",
-		"THROTTLE_ENABLED":    "true",
-		"THROTTLE_KEY_PREFIX": "test:throttle",
+		"APP_ENV":                 EnvTest,
+		"APP_NAME":                "orders",
+		"HOST":                    "127.0.0.1",
+		"PORT":                    "8080",
+		"API_PREFIX":              "/api/v1/",
+		"CORS_ORIGINS":            "https://a.example.com",
+		"TRUSTED_PROXY_CIDRS":     "10.0.0.0/8,fd00::/8",
+		"HTTP_LOG_ENABLED":        "true",
+		"DOCS_ENABLED":            "true",
+		"DOCS_AUTH_ENABLED":       "true",
+		"DOCS_USERNAME":           "docs",
+		"DOCS_PASSWORD":           " docs-secret ",
+		"EXAMPLE_UPSTREAM_ORIGIN": "https://upstream.example.com",
+		"MYSQL_ENABLED":           "true",
+		"DB_LOGGING":              "true",
+		"DB_HOST":                 "db.internal",
+		"DB_PORT":                 "3307",
+		"DB_USERNAME":             "app",
+		"DB_PASSWORD":             " db-secret ",
+		"DB_DATABASE":             "demo",
+		"REDIS_ENABLED":           "true",
+		"REDIS_HOST":              "cache.internal",
+		"REDIS_PORT":              "6380",
+		"REDIS_USERNAME":          "cache-user",
+		"REDIS_PASSWORD":          " redis-secret ",
+		"REDIS_DB":                "3",
+		"REDIS_KEY_PREFIX":        "test:demo",
+		"THROTTLE_ENABLED":        "true",
+		"THROTTLE_KEY_PREFIX":     "test:throttle",
 	}
 	c, err := Parse(func(key string) (string, bool) { value, ok := env[key]; return value, ok })
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := Config{
-		Env:               EnvTest,
-		AppName:           "orders",
-		Host:              "127.0.0.1",
-		Port:              8080,
-		APIPrefix:         "api/v1",
-		CORSOrigins:       []string{"https://a.example.com"},
-		TrustedProxies:    []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("fd00::/8")},
-		HTTPLog:           true,
-		Docs:              true,
-		DocsAuth:          true,
-		DocsUsername:      "docs",
-		DocsPassword:      " docs-secret ",
-		MySQL:             true,
-		DBLogging:         true,
-		DBHost:            "db.internal",
-		DBPort:            3307,
-		DBUser:            "app",
-		DBPassword:        " db-secret ",
-		DBName:            "demo",
-		Redis:             true,
-		RedisHost:         "cache.internal",
-		RedisPort:         6380,
-		RedisUser:         "cache-user",
-		RedisPassword:     " redis-secret ",
-		RedisDB:           3,
-		RedisKeyPrefix:    "test:demo",
-		Throttle:          true,
-		ThrottleKeyPrefix: "test:throttle",
+		Env:                   EnvTest,
+		AppName:               "orders",
+		Host:                  "127.0.0.1",
+		Port:                  8080,
+		APIPrefix:             "api/v1",
+		CORSOrigins:           []string{"https://a.example.com"},
+		TrustedProxies:        []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("fd00::/8")},
+		HTTPLog:               true,
+		Docs:                  true,
+		DocsAuth:              true,
+		DocsUsername:          "docs",
+		ExampleUpstreamOrigin: "https://upstream.example.com",
+		DocsPassword:          " docs-secret ",
+		MySQL:                 true,
+		DBLogging:             true,
+		DBHost:                "db.internal",
+		DBPort:                3307,
+		DBUser:                "app",
+		DBPassword:            " db-secret ",
+		DBName:                "demo",
+		Redis:                 true,
+		RedisHost:             "cache.internal",
+		RedisPort:             6380,
+		RedisUser:             "cache-user",
+		RedisPassword:         " redis-secret ",
+		RedisDB:               3,
+		RedisKeyPrefix:        "test:demo",
+		Throttle:              true,
+		ThrottleKeyPrefix:     "test:throttle",
 	}
 	var (
 		got      = reflect.ValueOf(c)
@@ -422,5 +424,39 @@ func TestParseFillsEveryDomain(t *testing.T) {
 	}
 	if len(missing) > 0 {
 		t.Fatalf("fields were not assembled: %s", strings.Join(missing, ", "))
+	}
+}
+
+// 示例上游只接受可信的纯 origin；带路径、查询、凭据或通配符会让出站请求目标不确定。
+func TestExampleUpstreamOriginRequiresBareOrigin(t *testing.T) {
+	for _, tc := range []struct{ name, value, wantError string }{
+		{"wildcard", "*", "通配符"},
+		{"path", "https://upstream.example.com/health", "EXAMPLE_UPSTREAM_ORIGIN"},
+		{"query", "https://upstream.example.com?token=secret", "EXAMPLE_UPSTREAM_ORIGIN"},
+		{"credentials", "https://user:pass@upstream.example.com", "EXAMPLE_UPSTREAM_ORIGIN"},
+		{"missing scheme", "upstream.example.com", "EXAMPLE_UPSTREAM_ORIGIN"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(func(key string) (string, bool) {
+				if key == "EXAMPLE_UPSTREAM_ORIGIN" {
+					return tc.value, true
+				}
+				return "", false
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("expected %q error, got %v", tc.wantError, err)
+			}
+		})
+	}
+	for _, value := range []string{"", "https://upstream.example.com", "http://127.0.0.1:8080"} {
+		c, err := Parse(func(key string) (string, bool) {
+			if key == "EXAMPLE_UPSTREAM_ORIGIN" {
+				return value, true
+			}
+			return "", false
+		})
+		if err != nil || c.ExampleUpstreamOrigin != value {
+			t.Fatalf("valid origin %q was rejected: %v", value, err)
+		}
 	}
 }

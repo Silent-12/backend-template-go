@@ -15,10 +15,13 @@ import (
 
 	"backend-template-go/internal/accesslog"
 	"backend-template-go/internal/config"
+	examplecontroller "backend-template-go/internal/controller/example"
 	"backend-template-go/internal/controller/health"
 	"backend-template-go/internal/httpclient"
 	"backend-template-go/internal/infrastructure"
 	"backend-template-go/internal/middleware"
+	examplerepository "backend-template-go/internal/repository/example"
+	exampleservice "backend-template-go/internal/service/example"
 )
 
 // 入站追踪头由 W3C Trace Context 定义，服务端不接受客户端指定的追踪上下文。
@@ -73,6 +76,29 @@ func Build(c config.Config, resources *infrastructure.Resources) (*App, error) {
 		return nil, err
 	}
 	app := &App{Server: s, resources: resources, clients: httpclient.NewRegistry()}
+	// 示例模块把事务、缓存和上游客户端接入启动链路；依赖关闭时仍构造只读组件，
+	// 由 Service 在请求时返回明确的功能不可用错误，而不是在装配阶段跳过整条链路。
+	cache, err := infrastructure.NewCache(resources.Redis, c.RedisKeyPrefix)
+	if err != nil {
+		return nil, err
+	}
+	upstream, err := app.HTTPClients().New(httpclient.Options{
+		BaseURL: c.ExampleUpstreamOrigin,
+		Timeout: 3 * time.Second,
+	})
+	if err != nil {
+		app.clients.Close()
+		return nil, err
+	}
+	exampleCtrl := examplecontroller.New(exampleservice.New(exampleservice.Options{
+		Logs:            examplerepository.New(resources.DB),
+		Transactor:      infrastructure.NewTransactor(resources.DB),
+		Cache:           cache,
+		Upstream:        upstream,
+		UpstreamEnabled: c.ExampleUpstreamOrigin != "",
+		DatabaseEnabled: resources.DB != nil,
+	}))
+	// 访问日志消费协程在可能失败的装配之后启动，避免 Build 返回错误时留下后台任务。
 	if c.HTTPLog {
 		app.logs = accesslog.New(resources.DB)
 	}
@@ -84,7 +110,7 @@ func Build(c config.Config, resources *infrastructure.Resources) (*App, error) {
 		middleware.HandlerResponse,
 		middleware.ParameterTypes,
 	)
-	registerBusinessRoutes(s, c, resources)
+	registerBusinessRoutes(s, c, resources, exampleCtrl)
 	registerProbes(s, c, resources)
 	return app, nil
 }
@@ -110,10 +136,11 @@ func checkResourceSwitches(c config.Config, resources *infrastructure.Resources)
 	return nil
 }
 
-// registerBusinessRoutes 在应用前缀下注册 v1 健康接口。
-func registerBusinessRoutes(s *ghttp.Server, c config.Config, resources *infrastructure.Resources) {
+// registerBusinessRoutes 在应用前缀下注册 v1 健康接口和示例模块接口。
+// exampleCtrl 由 Build 完成四层依赖装配后传入，路由注册本身不创建连接。
+func registerBusinessRoutes(s *ghttp.Server, c config.Config, resources *infrastructure.Resources, exampleCtrl *examplecontroller.Controller) {
 	s.Group(c.BasePath()+"/v1", func(group *ghttp.RouterGroup) {
-		group.Bind(health.New(resources, c.IsProduction()))
+		group.Bind(health.New(resources, c.IsProduction()), exampleCtrl)
 	})
 }
 

@@ -133,7 +133,7 @@ func (r *envReader) number(key string, fallback, minimum, maximum int) int {
 	return value
 }
 
-// parseServer 解析运行环境、服务名、监听地址、API 前缀、日志开关和文档认证配置。
+// parseServer 解析运行环境、服务名、监听地址、API 前缀、日志开关、文档认证和示例上游来源。
 // 返回只填充服务域字段的部分配置和该域的格式问题，不做跨域校验。
 func parseServer(lookup func(string) (string, bool)) (Config, []string) {
 	var (
@@ -156,6 +156,15 @@ func parseServer(lookup func(string) (string, bool)) (Config, []string) {
 	c.DocsAuth = r.boolean("DOCS_AUTH_ENABLED", false)
 	c.DocsUsername = r.text("DOCS_USERNAME", "")
 	c.DocsPassword = r.secret("DOCS_PASSWORD")
+	c.ExampleUpstreamOrigin = r.text("EXAMPLE_UPSTREAM_ORIGIN", "")
+	// 上游来源限制为纯 origin，使示例请求固定落在根路径，避免基础地址中的路径与请求路径拼接不确定。
+	if c.ExampleUpstreamOrigin == "*" {
+		r.problems = append(r.problems, "EXAMPLE_UPSTREAM_ORIGIN 不得使用通配符")
+	} else if c.ExampleUpstreamOrigin != "" {
+		if _, err := parseOrigin(c.ExampleUpstreamOrigin); err != nil {
+			r.problems = append(r.problems, "EXAMPLE_UPSTREAM_ORIGIN "+err.Error())
+		}
+	}
 	return c, r.problems
 }
 
@@ -274,34 +283,35 @@ func validate(c Config) []string {
 // combineConfig 按 Config 字段顺序装配各域解析结果；各域字段互不重叠，这里只搬运不校验。
 func combineConfig(server, database, cache, security Config) Config {
 	return Config{
-		Env:               server.Env,
-		AppName:           server.AppName,
-		Host:              server.Host,
-		Port:              server.Port,
-		APIPrefix:         server.APIPrefix,
-		CORSOrigins:       security.CORSOrigins,
-		TrustedProxies:    security.TrustedProxies,
-		HTTPLog:           server.HTTPLog,
-		Docs:              server.Docs,
-		DocsAuth:          server.DocsAuth,
-		DocsUsername:      server.DocsUsername,
-		DocsPassword:      server.DocsPassword,
-		MySQL:             database.MySQL,
-		DBLogging:         database.DBLogging,
-		DBHost:            database.DBHost,
-		DBPort:            database.DBPort,
-		DBUser:            database.DBUser,
-		DBPassword:        database.DBPassword,
-		DBName:            database.DBName,
-		Redis:             cache.Redis,
-		RedisHost:         cache.RedisHost,
-		RedisPort:         cache.RedisPort,
-		RedisUser:         cache.RedisUser,
-		RedisPassword:     cache.RedisPassword,
-		RedisDB:           cache.RedisDB,
-		RedisKeyPrefix:    cache.RedisKeyPrefix,
-		Throttle:          cache.Throttle,
-		ThrottleKeyPrefix: cache.ThrottleKeyPrefix,
+		Env:                   server.Env,
+		AppName:               server.AppName,
+		Host:                  server.Host,
+		Port:                  server.Port,
+		APIPrefix:             server.APIPrefix,
+		CORSOrigins:           security.CORSOrigins,
+		TrustedProxies:        security.TrustedProxies,
+		HTTPLog:               server.HTTPLog,
+		Docs:                  server.Docs,
+		DocsAuth:              server.DocsAuth,
+		DocsUsername:          server.DocsUsername,
+		DocsPassword:          server.DocsPassword,
+		ExampleUpstreamOrigin: server.ExampleUpstreamOrigin,
+		MySQL:                 database.MySQL,
+		DBLogging:             database.DBLogging,
+		DBHost:                database.DBHost,
+		DBPort:                database.DBPort,
+		DBUser:                database.DBUser,
+		DBPassword:            database.DBPassword,
+		DBName:                database.DBName,
+		Redis:                 cache.Redis,
+		RedisHost:             cache.RedisHost,
+		RedisPort:             cache.RedisPort,
+		RedisUser:             cache.RedisUser,
+		RedisPassword:         cache.RedisPassword,
+		RedisDB:               cache.RedisDB,
+		RedisKeyPrefix:        cache.RedisKeyPrefix,
+		Throttle:              cache.Throttle,
+		ThrottleKeyPrefix:     cache.ThrottleKeyPrefix,
 	}
 }
 

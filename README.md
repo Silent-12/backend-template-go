@@ -2,7 +2,7 @@
 
 基于 **GoFrame v2.10.4** 的后端基础模板，能力对齐同系列 Nest 基础模板。最低 Go 1.23，建议使用受支持的较新 Go 版本；当前在 Go 1.27.3 / Windows 上验证。
 
-模板开箱即用：默认关闭 MySQL、Redis 和限流，无需外部依赖即可启动。适合作为多个独立后端服务的起点，复制派生后按需接入数据库、缓存和业务模块。
+模板开箱即用：默认关闭 MySQL、Redis 和限流，无需外部依赖即可启动。适合作为多个独立后端服务的起点，复制派生后按需接入数据库、缓存和业务模块。示例模块在依赖关闭时返回明确的 503 / 501 降级提示，不阻塞启动。
 
 > 派生新服务时，先替换 `go.mod` 模块名与内部导入，再设置独立的 `APP_NAME`、API 前缀、数据库和 Redis 命名空间。`APP_NAME` 同时用于运行时服务名、文档标题及默认 Redis 命名空间，同一服务的多副本保持一致，不同服务必须不同。
 
@@ -13,6 +13,7 @@
 | 能力 | 说明 |
 | --- | --- |
 | 标准分层 | `api → controller → service → repository`，依赖构造函数注入 |
+| 示例业务纵切 | `api/example → controller/example → service/example → repository/example` 只读范例，接线事务、缓存和出站客户端 |
 | 统一响应与错误 | `code` / `message` / `data` / `timestamp` / `traceId`，HTTP 状态码与业务码一致 |
 | 参数校验 | 路径、查询、Body 标量类型检查，请求体上限 2 MiB |
 | 在线接口文档 | Knife4x Go v0.9.2 内嵌，无需 Node / CDN，可在线调试 |
@@ -61,12 +62,16 @@ Dockerfile                  多阶段构建，普通用户 + 生产模式启动
 .editorconfig               编码、换行与缩进约定（Go 使用制表符）
 AGENTS.md                   仓库规范与交付检查约定
 api/                        请求 / 响应 DTO 与路由元数据
+  example/v1/               示例模块协议，派生服务可替换或删除
 internal/
   cmd/                      命令入口与停止信号处理
   config/                   配置加载、默认值和校验
   controller/               HTTP 适配；不直接访问数据库
+    example/                示例模块协议适配
   service/                  业务服务与仓储接口，构造函数注入依赖
+    example/                示例模块业务规则与事务边界
   repository/               手写持久化实现，组合连接与生成的表 / 列元数据
+    example/                示例模块只读持久化
   dao/                      GoFrame CLI 生成的 DAO，不手工修改
   model/                    业务输入、响应投影与分页模型
     do/                     CLI 生成的数据库写入对象
@@ -90,7 +95,34 @@ hack/quality/               Resty / 分层 / 常见 ORM 写入约定检查
 .githooks/commit-msg        校验单行中文 Conventional Commit 标题
 ```
 
+### 示例业务纵切
+
+`example` 模块是贯穿四层的可运行范例，只读复用模板自带的 `access_logs` 表，不新增业务表、不写入领域规则、上游地址或凭据。派生服务照它扩展第一个业务模块，或直接删除：
+
+| 层 | 位置 | 职责 |
+| --- | --- | --- |
+| API | `api/example/v1` | DTO、`g.Meta` 路由元数据、校验与 `dc` 标签 |
+| Controller | `internal/controller/example` | 定义最小 Service 接口，做协议适配与响应投影 |
+| Service | `internal/service/example` | 定义最小 Repository 接口，拥有事务边界，组合缓存与出站客户端 |
+| Repository | `internal/repository/example` | 用 `DBFromContext` 复用事务连接，列名取自生成的列元数据 |
+
+装配发生在 `internal/server/server.go` 的 `Build`，把此前只有测试使用的基础能力接入启动链路：
+
+- `infrastructure.NewTransactor` 注入 Service，`ListLogs` 在事务回调内完成总数与当页记录的一致性读；事务内不发起 Redis 或 HTTP 调用。
+- `infrastructure.DBFromContext` 在 Repository 中取得连接，仓储不自行开启事务。
+- `infrastructure.NewCache` 注入 Service，缓存示例上游探测结果 5 秒；Redis 未启用或失败时降级为直接请求。
+- `app.HTTPClients().New` 通过应用注册表创建 Resty 客户端，Service 每次请求用 `SetContext(ctx)` 传递上下文，由 `App.Close` 统一关闭。
+
+| 接口 | 依赖 | 未启用时 |
+| --- | --- | --- |
+| `GET {前缀}/v1/example/logs?page=1&pageSize=20` | MySQL 已启用且已执行 V2 迁移 | 503 |
+| `GET {前缀}/v1/example/upstream` | `EXAMPLE_UPSTREAM_ORIGIN` 已配置 | 501 |
+
+示例路由暂放模块根目录（`/v1/example/...`）；派生服务应按实际端别迁移到 `/v1/admin/...` 或 `/v1/user/...`，并把 `EXAMPLE_UPSTREAM_ORIGIN` 换成自己的可信上游。删除示例模块时，移除上述四个目录、`Build` 与 `registerBusinessRoutes` 中的示例装配、`EXAMPLE_UPSTREAM_ORIGIN` 配置项及配置表对应行。
+
 ### 新增业务模块
+
+以下顺序以上一节 `example` 模块为可运行参照：
 
 1. 在 `api/<module>/v1` 定义请求 / 响应 DTO 与 `g.Meta` 路由信息。
 2. 在 `internal/controller` 做协议适配，在 `internal/service` 实现业务规则。
@@ -151,6 +183,7 @@ err := tx.Transaction(ctx, func(ctx context.Context) error {
 | `DOCS_AUTH_ENABLED` | `false` | 为文档入口启用 Basic 认证 | 需 `DOCS_ENABLED=true` 且非生产；要求用户名与密码非空 |
 | `DOCS_USERNAME` | 空 | 文档认证用户名 | 启用文档认证时必填 |
 | `DOCS_PASSWORD` | 空 | 文档认证密码，保留首尾空格 | 启用文档认证时必填 |
+| `EXAMPLE_UPSTREAM_ORIGIN` | 空 | 示例模块出站请求的可信来源，仅 http/https origin，不含路径、查询、片段或通配符 | 留空时示例上游探测返回 501；派生服务替换为自己的上游 |
 | `MYSQL_ENABLED` | `false` | 启用 MySQL 连接 | 要求 `DB_HOST`、`DB_USERNAME`、`DB_DATABASE` 非空；启动探测失败即退出 |
 | `DB_HOST` | `127.0.0.1` | MySQL 地址 | 启用 MySQL 时不可为空 |
 | `DB_PORT` | `3306` | MySQL 端口 | 1～65535 |
@@ -332,7 +365,7 @@ sh ./hack/check.sh
 
 安装脚本把 goimports、Revive 和 gf 安装到 `bin/tools`，并把当前仓库的 `core.hooksPath` 指向 `.githooks`。脚本自身输出固定为英文 ASCII：仓库源码是 UTF-8 无 BOM，而非 ASCII 文案在 Windows PowerShell 5.1 下会按 ANSI 解码，导致脚本语法被破坏。
 
-检查入口依次执行 goimports、Revive、模板约定检查、`go vet ./...`、`go test ./...`、`go build ./...`。默认测试无需外部服务，覆盖配置、可信代理边界、真实 HTTP 路由、追踪头剥离、参数校验、异常脱敏、Knife4x 前缀与内嵌资源、文档认证、限流排除等。
+检查入口依次执行 goimports、Revive、模板约定检查、`go vet ./...`、`go test ./...`、`go build ./...`。默认测试无需外部服务，覆盖配置、可信代理边界、真实 HTTP 路由、追踪头剥离、参数校验、异常脱敏、Knife4x 前缀与内嵌资源、文档认证、限流排除，以及示例四层纵切的事务一致性读、分页契约、出站追踪头、缓存命中与依赖降级。
 
 提交前会自动调用统一检查入口，不自动改写或暂存源码；提交标题遵循 Conventional Commits，建议单行中文，例如 `fix(http): 修复错误响应状态码`。
 
