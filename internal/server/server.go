@@ -10,6 +10,7 @@ import (
 
 	"github.com/gogf/gf/v2/errors/gcode"
 	"github.com/gogf/gf/v2/errors/gerror"
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/google/uuid"
 
@@ -62,6 +63,8 @@ func Build(c config.Config, resources *infrastructure.Resources) (*App, error) {
 		r.Header.Del(ghttp.HeaderXUrlPath)
 		r.Header.Del(headerTraceparent)
 		r.Header.Del(headerTracestate)
+		// 在路由匹配前记录请求，只输出转义后的路径，避免查询参数进入运行日志。
+		g.Log().Infof(r.Context(), "method=%s url=%q", r.Method, r.URL.EscapedPath())
 		s.ServeHTTP(w, r)
 	})
 	s.SetDumpRouterMap(false)

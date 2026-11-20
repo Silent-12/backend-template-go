@@ -71,6 +71,42 @@ func TestUnhandledErrorsDoNotLeakIntoLogs(t *testing.T) {
 	}
 }
 
+func TestIncomingRequestsLogURL(t *testing.T) {
+	c := testConfig(t)
+	var capture logCapture
+	logger := g.Log()
+	previous := logger.GetWriter()
+	logger.SetWriter(&capture)
+	t.Cleanup(func() { logger.SetWriter(previous) })
+
+	app, err := Build(c, &infrastructure.Resources{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := startApp(t, app)
+	for _, test := range []struct {
+		method string
+		path   string
+		body   string
+		status int
+	}{
+		{http.MethodGet, c.OpenAPIPath(), "", http.StatusOK},
+		{http.MethodPost, "/missing%20route", `{"data":"body-marker"}`, http.StatusNotFound},
+	} {
+		res, _ := request(t, test.method, base+test.path+"?token=query-marker", test.body)
+		if res.StatusCode != test.status {
+			t.Fatalf("%s %s: status = %d, want %d", test.method, test.path, res.StatusCode, test.status)
+		}
+		entry := "[INFO] method=" + test.method + " url=\"" + test.path + "\""
+		if count := strings.Count(capture.String(), entry); count != 1 {
+			t.Fatalf("expected exactly one log for %s %s, got %d", test.method, test.path, count)
+		}
+	}
+	if logged := capture.String(); strings.Contains(logged, "query-marker") || strings.Contains(logged, "body-marker") {
+		t.Fatal("request log exposed query or body")
+	}
+}
+
 type identityReq struct {
 	g.Meta `path:"/identity/{itemNo}" method:"patch"`
 	ItemNo string `json:"itemNo" in:"path"`

@@ -3,6 +3,7 @@ logger:
   path: logs
   file: "app-{Y-m-d}.log"
   level: all
+  timeFormat: "2006-01-02 15:04:05"
   stdout: true
   rotateSize: "100M"
   # 日期切换后不再写入的旧日志也必须进入轮转，否则备份保留策略不会清理它们。

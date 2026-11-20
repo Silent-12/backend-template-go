@@ -235,7 +235,7 @@ err := tx.Transaction(ctx, func(ctx context.Context) error {
 
 ### 访问日志
 
-运行日志由 `manifest/config/config.yaml` 配置，写入 `logs` 并输出控制台，按日期命名、100 MB 轮转；闲置超过 24 小时的旧日志也会进入轮转，备份最多 10 份、最长保留 7 天。
+运行日志由 `manifest/config/config.yaml` 配置，写入 `logs` 并输出控制台。时间格式为 `YYYY-MM-DD HH:mm:ss`。每个入站 HTTP 请求都会记录 `method` 和转义后的 `url` 路径，省略查询参数。日志按日期命名、100 MB 轮转，闲置超过 24 小时的旧日志也会进入轮转，备份最多 10 份、最长保留 7 天。
 
 `HTTP_LOG_ENABLED=true` 要求 MySQL 已开启，并写入 `access_logs`；仅记录路由模板、方法、状态、耗时、IP 和追踪号。队列容量 256，满时丢弃并告警；停止时最多等待 5 秒处理日志。`access_logs` 的保留期与清理策略由部署侧负责，模板不提供定时清理或分区任务。
 
